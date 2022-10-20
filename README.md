@@ -9,27 +9,21 @@ By tuning off instances at night and weekends we can reduce the AWS bill.
 
 In order to check AWS configurations and the creation of resources and services we'll need to install the AWS client application (See the links section).
 
-For this project, we'll create a new AWS profile. I've named mine "sandbox".
+For this project, we'll create a new AWS profile. If we name it "default" we won't need to referent it in all AWS CLI commands.
 If you already have an AWS profile created for other purposes, backup your ~/.aws/config and ~/.aws/credentials files.
 
 ```sh
 mkdir ~/.aws
-echo -e "[profile sandbox]\nregion = us-east-1\noutput = json" > ~/.aws/config
-echo -e "[sandbox]\naws_access_key_id = AWS_ACCESS_KEY  >\naws_secret_access_key = AWS_SECRET_KEY" > ~/.aws/credentials
+echo -e "[profile default]\nregion = us-east-1\noutput = json" > ~/.aws/config
+echo -e "[default]\naws_access_key_id = AWS_ACCESS_KEY >\naws_secret_access_key = AWS_SECRET_KEY" > ~/.aws/credentials
 ```
 
 If you prefer to create your infrastructure in a different region than "us-east-1", feel free to change it in the config file.
 Replace "AWS_ACCESS_KEY" and AWS_SECRET_KEY with yours.
-If you prefer another profile name you can change it in the config file.
-
-I rather prefer to define an environment variable to save the value of the profile name I'll be using.
-```sh
-PROFILE=sandbox
-```
 
 To check the profile is correctly configured execute the command:
 ```sh
-aws configure --profile $PROFILE
+aws configure
 ```
 
 We'll also need to install jq JSON processor, as we are going to manipulate AWS CLI output in JSON format.
@@ -77,8 +71,7 @@ aws rds create-db-instance \
     --master-username $USERNAME \
     --master-user-password $PASSWORD \
     --allocated-storage $STORAGE \
-    --tags "[{\"Key\": \"$TAG_NAME\",\"Value\": \"$TAG_VALUE\"}]" \
-    --profile $PROFILE
+    --tags "[{\"Key\": \"$TAG_NAME\",\"Value\": \"$TAG_VALUE\"}]"
 ```
 
 Let's create another RDS instance but with the tag value "yes" for key "always-running".
@@ -92,18 +85,17 @@ aws rds create-db-instance \
     --master-username $USERNAME \
     --master-user-password $PASSWORD \
     --allocated-storage $STORAGE \
-    --tags "[{\"Key\": \"$TAG_NAME\",\"Value\": \"$TAG_VALUE\"}]" \
-    --profile $PROFILE
+    --tags "[{\"Key\": \"$TAG_NAME\",\"Value\": \"$TAG_VALUE\"}]"
 ```
 
 Let's check if the instances have been created correctly.
 ```sh
-aws rds describe-db-instances --profile $PROFILE
+aws rds describe-db-instances 
 ```
 
 List only instances by InstanceId.
 ```sh
-aws rds describe-db-instances --profile $PROFILE | jq ".DBInstances[] | [.DBInstanceIdentifier]"
+aws rds describe-db-instances | jq ".DBInstances[] | [.DBInstanceIdentifier]"
 ```
 
 ### Create the IAM rules and policies
@@ -129,17 +121,17 @@ echo $ROLE_NAME
 
 Now we create our lambda IAM policy.
 ```sh
-aws iam create-policy --policy-name $POLICY_NAME --policy-document file://$PWD/iam-policy.json --profile $PROFILE
+aws iam create-policy --policy-name $POLICY_NAME --policy-document file://$PWD/iam-policy.json
 ```
 
 Let's check if the policy has been created correctly.
 ```sh
-aws iam list-policies --scope Local --query "Policies[?PolicyName==\`$POLICY_NAME\`]" --profile $PROFILE
+aws iam list-policies --scope Local --query "Policies[?PolicyName==\`$POLICY_NAME\`]"
 ```
 
 We can catch the policy ARN from the last command output or get it executing the following:
 ```sh
-POLICY_ARN=$(aws iam list-policies --scope Local --query "Policies[?PolicyName==\`$POLICY_NAME\`].{Arn: Arn}" --profile $PROFILE | jq ".[].Arn" | sed 's/"//g')
+POLICY_ARN=$(aws iam list-policies --scope Local --query "Policies[?PolicyName==\`$POLICY_NAME\`].{Arn: Arn}" | jq ".[].Arn" | sed 's/"//g')
 ```
 
 Check its value.
@@ -151,22 +143,22 @@ We'll need the policy ARN to attach it later to the IAM role.
 
 Now we create the lambda IAM role.
 ```sh
-aws iam create-role --role-name $ROLE_NAME --assume-role-policy-document file://$PWD/trust-policy.json --profile $PROFILE
+aws iam create-role --role-name $ROLE_NAME --assume-role-policy-document file://$PWD/trust-policy.json
 ```
 
 We attach the permissions policy to the role.
 ```sh
-aws iam attach-role-policy --policy-arn $POLICY_ARN --role-name $ROLE_NAME --profile $PROFILE
+aws iam attach-role-policy --policy-arn $POLICY_ARN --role-name $ROLE_NAME
 ```
 
 Let's check if the role has been created correctly.
 ```sh
-aws iam list-roles --query "Roles[?RoleName==\`$ROLE_NAME\`]" --profile $PROFILE
+aws iam list-roles --query "Roles[?RoleName==\`$ROLE_NAME\`]"
 ```
 
 We can catch the role ARN from the last command output or get it executing the following command:
 ```sh
-ROLE_ARN=$(aws iam list-roles --query "Roles[?RoleName==\`$ROLE_NAME\`].{Arn: Arn}" --profile $PROFILE | jq ".[].Arn" | sed 's/"//g')
+ROLE_ARN=$(aws iam list-roles --query "Roles[?RoleName==\`$ROLE_NAME\`].{Arn: Arn}" | jq ".[].Arn" | sed 's/"//g')
 ```
 
 Check its value.
@@ -212,17 +204,17 @@ zip $FUNCTION_FILE lambda_function_stop.py
 
 Now we create the Lambda function.
 ```sh
-aws lambda create-function --function-name $FUNCTION_NAME --zip-file fileb://$PWD/$FUNCTION_FILE --handler $HANDLER --runtime $RUNTIME --timeout $TIMEOUT --role $ROLE_ARN --profile $PROFILE
+aws lambda create-function --function-name $FUNCTION_NAME --zip-file fileb://$PWD/$FUNCTION_FILE --handler $HANDLER --runtime $RUNTIME --timeout $TIMEOUT --role $ROLE_ARN
 ```
 
 Let's check if the function has been created correctly.
 ```sh
-aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`]" --profile $PROFILE
+aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`]"
 ```
 
 We can catch the function ARN from the last command output or get it executing the following command:
 ```sh
-STOP_FUNCTION_ARN=$(aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`].{FunctionArn: FunctionArn}" --profile $PROFILE | jq ".[].FunctionArn" | sed 's/"//g')
+STOP_FUNCTION_ARN=$(aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`].{FunctionArn: FunctionArn}" | jq ".[].FunctionArn" | sed 's/"//g')
 ```
 
 Check its value.
@@ -238,8 +230,8 @@ FUNCTION_NAME=StartRDSInstances
 FUNCTION_FILE=function_start.zip
 HANDLER=lambda_function_start.lambda_handler
 zip $FUNCTION_FILE lambda_function_start.py
-aws lambda create-function --function-name $FUNCTION_NAME --zip-file fileb://$PWD/$FUNCTION_FILE --handler $HANDLER --runtime $RUNTIME --timeout $TIMEOUT --role $ROLE_ARN --profile $PROFILE
-START_FUNCTION_ARN=$(aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`].{FunctionArn: FunctionArn}" --profile $PROFILE | jq ".[].FunctionArn" | sed 's/"//g')
+aws lambda create-function --function-name $FUNCTION_NAME --zip-file fileb://$PWD/$FUNCTION_FILE --handler $HANDLER --runtime $RUNTIME --timeout $TIMEOUT --role $ROLE_ARN
+START_FUNCTION_ARN=$(aws lambda list-functions --query "Functions[?FunctionName==\`$FUNCTION_NAME\`].{FunctionArn: FunctionArn}" | jq ".[].FunctionArn" | sed 's/"//g')
 ```
 
 ### Create the EventBridge rules
@@ -271,8 +263,8 @@ Now we create the event rule to stop RDS instances, and we add the corresponding
 
 ```sh
 # Stop RDS instances event rule
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
-aws events put-targets --rule $RULE_NAME --targets "Id"=$TARGET_ID,"Arn"=$STOP_FUNCTION_ARN --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
+aws events put-targets --rule $RULE_NAME --targets "Id"=$TARGET_ID,"Arn"=$STOP_FUNCTION_ARN
 ```
 
 Add the resource-based policy statement for the event rule to the lambda function.
@@ -284,18 +276,17 @@ aws lambda add-permission \
 --statement-id $RULE_NAME \
 --action 'lambda:InvokeFunction' \
 --principal events.amazonaws.com \
---source-arn $STOP_FUNCTION_ARN \
---profile $PROFILE
+--source-arn $STOP_FUNCTION_ARN
 ```
 
 Let's check if the function has been created correctly.
 ```sh
-aws events list-rules --query "Rules[?Name==\`$RULE_NAME\`]" --profile $PROFILE
+aws events list-rules --query "Rules[?Name==\`$RULE_NAME\`]"
 ```
 
 List attached targets by rule:
 ```sh
-aws events list-targets-by-rule --rule $RULE_NAME --profile $PROFILE
+aws events list-targets-by-rule --rule $RULE_NAME
 ```
 
 We also create the event rule to start RDS instances, and we add the corresponding Lambda function as target.
@@ -305,8 +296,8 @@ We also create the event rule to start RDS instances, and we add the correspondi
 RULE_NAME=StartRDSInstancesDaily
 CRON_EXPRESSION='cron(0 5 ? * MON-FRI *)'
 TARGET_ID=StartRDSInstancesId
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
-aws events put-targets --rule $RULE_NAME --targets "Id"="$TARGET_ID","Arn"="$START_FUNCTION_ARN" --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
+aws events put-targets --rule $RULE_NAME --targets "Id"="$TARGET_ID","Arn"="$START_FUNCTION_ARN"
 ```
 
 Add the resource-based policy statement for the event rule to the lambda function.
@@ -318,17 +309,16 @@ aws lambda add-permission \
 --statement-id $RULE_NAME \
 --action 'lambda:InvokeFunction' \
 --principal events.amazonaws.com \
---source-arn $START_FUNCTION_ARN \
---profile $PROFILE
+--source-arn $START_FUNCTION_ARN
 ```
 
 Let's check if the function has been created correctly.
 ```sh
-aws events list-rules --query "Rules[?Name==\`$RULE_NAME\`]" --profile $PROFILE
+aws events list-rules --query "Rules[?Name==\`$RULE_NAME\`]"
 ```
 List attached targets by rule:
 ```sh
-aws events list-targets-by-rule --rule $RULE_NAME --profile $PROFILE
+aws events list-targets-by-rule --rule $RULE_NAME
 ```
 
 ### Test lambda functions
@@ -343,18 +333,18 @@ Let's change the cron expression for the StopRDSInstancesNightly event rule to a
 ```sh
 RULE_NAME=StopRDSInstancesNightly
 CRON_EXPRESSION='cron(0 9 ? * * *)'
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
 ```
 
 We can list the instances and see if one of them stopped (tag always-running=no).
 ```sh
-aws rds describe-db-instances --profile $PROFILE | jq ".DBInstances[] | [.DBInstanceIdentifier, .DBInstanceStatus, (.TagList[]|select(.Key==\"$TAG_NAME\")|.Value)]"
+aws rds describe-db-instances  | jq ".DBInstances[] | [.DBInstanceIdentifier, .DBInstanceStatus, (.TagList[]|select(.Key==\"$TAG_NAME\")|.Value)]"
 ```
 
 The following command shows how to retrieve base64-encoded logs for Lambda function StopRDSInstances.
 ```sh
 FUNCTION_NAME=StopRDSInstances
-aws lambda invoke --function-name $FUNCTION_NAME out --log-type Tail --query 'LogResult' --output text --profile $PROFILE |  base64 -d
+aws lambda invoke --function-name $FUNCTION_NAME out --log-type Tail --query 'LogResult' --output text | base64 -d
 ```
 
 Let's change the cron expression for the StartRDSInstancesDaily event rule to a different time.
@@ -362,28 +352,28 @@ Let's change the cron expression for the StartRDSInstancesDaily event rule to a 
 ```sh
 RULE_NAME=StartRDSInstancesDaily
 CRON_EXPRESSION='cron(10 9 ? * * *)'
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
 ```
 
 List again the instances and see if the stopped RDS instance started as expected.
 ```sh
-aws rds describe-db-instances --profile $PROFILE | jq ".DBInstances[] | [.DBInstanceIdentifier, .DBInstanceStatus, (.TagList[]|select(.Key==\"$TAG_NAME\")|.Value)]"
+aws rds describe-db-instances | jq ".DBInstances[] | [.DBInstanceIdentifier, .DBInstanceStatus, (.TagList[]|select(.Key==\"$TAG_NAME\")|.Value)]"
 ```
 
 Retrieve the base64-encoded logs for Lambda function StartRDSInstances.
 ```sh
 FUNCTION_NAME=StartRDSInstances
-aws lambda invoke --function-name $FUNCTION_NAME out --log-type Tail --query 'LogResult' --output text --profile $PROFILE |  base64 -d
+aws lambda invoke --function-name $FUNCTION_NAME out --log-type Tail --query 'LogResult' --output text | base64 -d
 ```
 
 Now we can finally set the cron expressions to their original values.
 ```sh
 RULE_NAME=StopRDSInstancesNightly
 CRON_EXPRESSION='cron(0 21 ? * MON-FRI *)'
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
 RULE_NAME=StartRDSInstancesDaily
 CRON_EXPRESSION='cron(0 5 ? * MON-FRI *)'
-aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION --profile $PROFILE
+aws events put-rule --name $RULE_NAME --schedule-expression $CRON_EXPRESSION
 ```
 
 ## Links
